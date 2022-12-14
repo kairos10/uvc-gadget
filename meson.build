@@ -55,6 +55,15 @@ cc = meson.get_compiler('c')
 
 libcamera = dependency('libcamera', required : false)
 
+conf = configuration_data()
+
+if libcamera.found()
+  conf.set('HAVE_LIBCAMERA', true)
+endif
+
+configure_file(output : 'config.h', configuration : conf)
+config_includes = include_directories('.')
+
 subdir('include')
 
 subdir('lib')

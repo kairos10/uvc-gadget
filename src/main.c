@@ -11,9 +11,11 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include "config.h"
 #include "configfs.h"
 #include "events.h"
 #include "stream.h"
+#include "libcamera-source.h"
 #include "v4l2-source.h"
 #include "test-source.h"
 #include "jpg-source.h"
@@ -23,6 +25,9 @@ static void usage(const char *argv0)
 {
 	fprintf(stderr, "Usage: %s [options] <uvc device>\n", argv0);
 	fprintf(stderr, "Available options are\n");
+#ifdef HAVE_LIBCAMERA
+	fprintf(stderr, " -c <index|id> libcamera camera name\n");
+#endif
 	fprintf(stderr, " -d device	V4L2 source device\n");
 	fprintf(stderr, " -i image	MJPEG image\n");
 	fprintf(stderr, " -s directory	directory of slideshow images\n");
@@ -60,6 +65,9 @@ static void sigint_handler(int signal __attribute__((unused)))
 int main(int argc, char *argv[])
 {
 	char *function = NULL;
+#ifdef HAVE_LIBCAMERA
+	char *camera = NULL;
+#endif
 	char *cap_device = NULL;
 	char *img_path = NULL;
 	char *slideshow_dir = NULL;
@@ -71,8 +79,13 @@ int main(int argc, char *argv[])
 	int ret = 0;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "d:i:s:k:h")) != -1) {
+	while ((opt = getopt(argc, argv, "c:d:i:s:k:h")) != -1) {
 		switch (opt) {
+#ifdef HAVE_LIBCAMERA
+		case 'c':
+			camera = optarg;
+			break;
+#endif
 		case 'd':
 			cap_device = optarg;
 			break;
@@ -124,6 +137,10 @@ int main(int argc, char *argv[])
 	/* Create and initialize a video source. */
 	if (cap_device)
 		src = v4l2_video_source_create(cap_device);
+#ifdef HAVE_LIBCAMERA
+	else if (camera)
+		src = libcamera_source_create(camera);
+#endif
 	else if (img_path)
 		src = jpg_video_source_create(img_path);
 	else if (slideshow_dir)
@@ -137,6 +154,11 @@ int main(int argc, char *argv[])
 
 	if (cap_device)
 		v4l2_video_source_init(src, &events);
+
+#ifdef HAVE_LIBCAMERA
+	if (camera)
+		libcamera_source_init(src, &events);
+#endif
 
 	/* Create and initialise the stream. */
 	stream = uvc_stream_new(fc->video);

@@ -6,5 +6,5 @@ gadget = executable('uvc-gadget', 'main.c',
                     dependencies : [
                         libuvcgadget,
                     ],
-                    include_directories : includes,
+                    include_directories : [includes, config_includes],
                     install : true)
