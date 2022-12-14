@@ -23,7 +23,7 @@ static void usage(const char *argv0)
 {
 	fprintf(stderr, "Usage: %s [options] <uvc device>\n", argv0);
 	fprintf(stderr, "Available options are\n");
-	fprintf(stderr, " -c device	V4L2 source device\n");
+	fprintf(stderr, " -d device	V4L2 source device\n");
 	fprintf(stderr, " -i image	MJPEG image\n");
 	fprintf(stderr, " -s directory	directory of slideshow images\n");
 	fprintf(stderr, " -h		Print this help screen and exit\n");
@@ -71,9 +71,9 @@ int main(int argc, char *argv[])
 	int ret = 0;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "c:i:s:k:h")) != -1) {
+	while ((opt = getopt(argc, argv, "d:i:s:k:h")) != -1) {
 		switch (opt) {
-		case 'c':
+		case 'd':
 			cap_device = optarg;
 			break;
 
