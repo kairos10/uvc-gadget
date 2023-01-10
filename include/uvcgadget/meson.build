@@ -9,6 +9,7 @@ uvcgadget_public_headers = files([
   'timer.h',
   'v4l2-source.h',
   'video-source.h',
+  'mjpeg_encoder.hpp',
   ])
 
 

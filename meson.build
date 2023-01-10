@@ -54,11 +54,17 @@ summary({ 'Sources': uvc_gadget_git_version, }, section : 'Versions')
 cc = meson.get_compiler('c')
 
 libcamera = dependency('libcamera', required : false)
+libjpeg = dependency('libjpeg', required : false)
+threads = dependency('threads', required : false)
 
 conf = configuration_data()
 
 if libcamera.found()
   conf.set('HAVE_LIBCAMERA', true)
+endif
+
+if libjpeg.found() and threads.found()
+    conf.set('CONFIG_CAN_ENCODE', true)
 endif
 
 configure_file(output : 'config.h', configuration : conf)

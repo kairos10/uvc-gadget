@@ -16,9 +16,14 @@
 #include <string>
 #include <string.h>
 #include <unistd.h>
+#include <map>
+#include <sys/mman.h>
 
 #include <libcamera/libcamera.h>
 #include <linux/videodev2.h>
+
+#include "config.h"
+#include "mjpeg_encoder.hpp"
 
 extern "C" {
 #include "events.h"
@@ -28,6 +33,7 @@ extern "C" {
 }
 
 using namespace libcamera;
+using namespace std::placeholders;
 
 #define to_libcamera_source(s) container_of(s, struct libcamera_source, src)
 
@@ -44,10 +50,34 @@ struct libcamera_source {
 	std::queue<Request *> completed_requests;
 	int pfds[2];
 
+	MjpegEncoder *encoder;
+	std::unordered_map<FrameBuffer *, Span<uint8_t>> mapped_buffers_;
+
 	struct video_buffer_set buffers;
 
+	void mapBuffer(const std::unique_ptr<FrameBuffer> &buffer);
 	void requestComplete(Request *request);
+	void outputReady(void *mem, size_t bytesused, int64_t timestamp, unsigned int cookie);
 };
+
+void libcamera_source::mapBuffer(const std::unique_ptr<FrameBuffer> &buffer)
+{
+	size_t buffer_size = 0;
+
+	for (unsigned int i = 0; i < buffer->planes().size(); i++) {
+		const FrameBuffer::Plane &plane = buffer->planes()[i];
+		buffer_size += plane.length;
+
+		if (i == buffer->planes().size() - 1 ||
+			plane.fd.get() != buffer->planes()[i + 1].fd.get()) {
+			void *memory = mmap(NULL, buffer_size, PROT_READ | PROT_WRITE,
+						MAP_SHARED, plane.fd.get(), 0);
+			mapped_buffers_[buffer.get()] =
+				Span<uint8_t>(static_cast<uint8_t *>(memory), buffer_size);
+			buffer_size = 0;
+		}
+	}
+}
 
 void libcamera_source::requestComplete(Request *request)
 {
@@ -65,9 +95,22 @@ void libcamera_source::requestComplete(Request *request)
 	write(pfds[1], "x", 1);
 };
 
+void libcamera_source::outputReady(void *mem, size_t bytesused, int64_t timestamp, unsigned int cookie)
+{
+	struct video_buffer buffer;
+
+	buffer.index = cookie;
+	buffer.mem = mem;
+	buffer.bytesused = bytesused;
+	buffer.timestamp = { timestamp / 1000000, timestamp % 1000000 };
+
+	src.handler(src.handler_data, &src, &buffer);
+}
+
 static void libcamera_source_video_process(void *d)
 {
 	struct libcamera_source *src = (struct libcamera_source *)d;
+	Stream *stream = src->config->at(0).stream();
 	struct video_buffer buffer;
 	Request *request;
 
@@ -79,6 +122,25 @@ static void libcamera_source_video_process(void *d)
 
 	/* We have only a single buffer per request, so just pick the first */
 	FrameBuffer *framebuf = request->buffers().begin()->second;
+
+	/*
+	 * If we have an encoder, then rather than simply detailing the buffer
+	 * here and passing it back to the sink we need to queue it to the
+	 * encoder. The encoder will queue that buffer to the sink after
+	 * compression.
+	 */
+	if (src->src.type == VIDEO_SOURCE_ENCODED) {
+		int64_t timestamp_ns = framebuf->metadata().timestamp;
+		StreamInfo info = src->encoder->getStreamInfo(stream);
+		auto span = src->mapped_buffers_.find(framebuf);
+		void *mem = span->second.data();
+		void *dest = src->buffers.buffers[request->cookie()].mem;
+		unsigned int size = span->second.size();
+
+		src->encoder->EncodeBuffer(mem, dest, size, info, timestamp_ns / 1000, request->cookie());
+
+		return;
+	}
 
 	buffer.index = request->cookie();
 
@@ -113,12 +175,32 @@ static int libcamera_source_set_format(struct video_source *s,
 {
 	struct libcamera_source *src = to_libcamera_source(s);
 	StreamConfiguration &streamConfig = src->config->at(0);
+	__u32 chosen_pixelformat = fmt->pixelformat;
 
 	streamConfig.size.width = fmt->width;
 	streamConfig.size.height = fmt->height;
-	streamConfig.pixelFormat = PixelFormat(fmt->pixelformat);
+	streamConfig.pixelFormat = PixelFormat(chosen_pixelformat);
 
 	src->config->validate();
+
+#ifdef CONFIG_CAN_ENCODE
+	/*
+	 * If the user requests MJPEG but the camera can't supply it, try again
+	 * with YUV420 and initialise an MjpegEncoder to compress the data.
+	 */
+	if (chosen_pixelformat == V4L2_PIX_FMT_MJPEG &&
+	    streamConfig.pixelFormat.fourcc() != chosen_pixelformat) {
+		std::cout << "MJPEG format not natively supported; encoding YUV420" << std::endl;
+
+		src->encoder = new MjpegEncoder();
+		src->encoder->SetOutputReadyCallback(std::bind(&libcamera_source::outputReady, src, _1, _2, _3, _4));
+
+		streamConfig.pixelFormat = PixelFormat(V4L2_PIX_FMT_YUV420);
+		src->src.type = VIDEO_SOURCE_ENCODED;
+
+		src->config->validate();
+	}
+#endif
 
 	if (fmt->pixelformat != streamConfig.pixelFormat.fourcc())
 		std::cerr << "Warning: set_format: Requested format unavailable" << std::endl;
@@ -132,7 +214,7 @@ static int libcamera_source_set_format(struct video_source *s,
 
 	fmt->width = streamConfig.size.width;
 	fmt->height = streamConfig.size.height;
-	fmt->pixelformat = streamConfig.pixelFormat.fourcc();
+	fmt->pixelformat = src->encoder ? V4L2_PIX_FMT_MJPEG : streamConfig.pixelFormat.fourcc();
 	fmt->field = V4L2_FIELD_ANY;
 
 	/* TODO: Can we use libcamera helpers to get image size / stride? */
@@ -180,6 +262,11 @@ static int libcamera_source_alloc_buffers(struct video_source *s, unsigned int n
 
 	const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
 	src->buffers.nbufs = buffers.size();
+
+	if (src->src.type == VIDEO_SOURCE_ENCODED) {
+		for (const std::unique_ptr<FrameBuffer> &buffer : buffers)
+			src->mapBuffer(buffer);
+	}
 
 	src->buffers.buffers = (video_buffer *)calloc(src->buffers.nbufs, sizeof(*src->buffers.buffers));
 	if (!src->buffers.buffers) {
@@ -242,6 +329,11 @@ static int libcamera_source_free_buffers(struct video_source *s)
 {
 	struct libcamera_source *src = to_libcamera_source(s);
 	Stream *stream = src->config->at(0).stream();
+
+	for (auto &[buf, span] : src->mapped_buffers_)
+		munmap(span.data(), span.size());
+
+	src->mapped_buffers_.clear();
 
 	src->allocator->free(stream);
 	delete src->allocator;
@@ -312,6 +404,18 @@ static int libcamera_source_stream_off(struct video_source *s)
 
 	while (!src->completed_requests.empty())
 		src->completed_requests.pop();
+
+	if (src->src.type == VIDEO_SOURCE_ENCODED) {
+		delete src->encoder;
+		src->encoder = nullptr;
+	}
+
+	/*
+	 * We need to reinitialise this here, as if the user selected an
+	 * unsupported MJPEG format the encoding routine will have overriden
+	 * this setting.
+	 */
+	src->src.type = VIDEO_SOURCE_DMABUF;
 
 	return 0;
 }
@@ -403,6 +507,7 @@ struct video_source *libcamera_source_create(const char *devname)
 
 	src->src.ops = &libcamera_source_ops;
 	src->src.type = VIDEO_SOURCE_DMABUF;
+
 	src->cm = std::make_unique<CameraManager>();
 	src->cm->start();
 
