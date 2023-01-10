@@ -7,6 +7,7 @@
  * Contact: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -183,10 +184,19 @@ static int uvc_stream_start(struct uvc_stream *stream)
 {
 	printf("Starting video stream.\n");
 
-	if (stream->src->ops->alloc_buffers)
+	switch (stream->src->type) {
+	case VIDEO_SOURCE_DMABUF:
+		video_source_set_buffer_handler(stream->src, uvc_stream_source_process,
+						stream);
 		return uvc_stream_start_alloc(stream);
-	else
+	case VIDEO_SOURCE_STATIC:
 		return uvc_stream_start_no_alloc(stream);
+	default:
+		fprintf(stderr, "invalid video source type\n");
+		break;
+	}
+
+	return -EINVAL;
 }
 
 static int uvc_stream_stop(struct uvc_stream *stream)
@@ -288,8 +298,4 @@ void uvc_stream_set_video_source(struct uvc_stream *stream,
 				 struct video_source *src)
 {
 	stream->src = src;
-
-	if (stream->src->ops->alloc_buffers)
-		video_source_set_buffer_handler(src, uvc_stream_source_process,
-						stream);
 }

@@ -367,6 +367,7 @@ struct video_source *slideshow_video_source_create(const char *img_dir)
 
 	memset(src, 0, sizeof *src);
 	src->src.ops = &slideshow_source_ops;
+	src->src.type = VIDEO_SOURCE_STATIC;
 
 	strncpy(src->img_dir, img_dir, sizeof(src->img_dir));
 

@@ -149,6 +149,7 @@ struct video_source *jpg_video_source_create(const char *img_path)
 
 	memset(src, 0, sizeof *src);
 	src->src.ops = &jpg_source_ops;
+	src->src.type = VIDEO_SOURCE_STATIC;
 
 	fd = open(img_path, O_RDONLY);
 	if (fd == -1) {

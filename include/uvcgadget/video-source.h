@@ -32,11 +32,24 @@ struct video_source_ops {
 typedef void(*video_source_buffer_handler_t)(void *, struct video_source *,
 					     struct video_buffer *);
 
+/*
+ * video_source_type - Enumeration of the different kinds of video source
+ * @VIDEO_SOURCE_DMABUF		A source that can share data with the sink via a
+ *				DMA file descriptor.
+ * @VIDEO_SOURCE_STATIC		A source that draws data from an unchanging
+ *				buffer such as a .jpg file
+ */
+enum video_source_type {
+	VIDEO_SOURCE_DMABUF,
+	VIDEO_SOURCE_STATIC,
+};
+
 struct video_source {
 	const struct video_source_ops *ops;
 	struct events *events;
 	video_source_buffer_handler_t handler;
 	void *handler_data;
+	enum video_source_type type;
 };
 
 void video_source_set_buffer_handler(struct video_source *src,

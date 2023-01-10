@@ -134,6 +134,7 @@ struct video_source *test_video_source_create()
 
 	memset(src, 0, sizeof *src);
 	src->src.ops = &test_source_ops;
+	src->src.type = VIDEO_SOURCE_STATIC;
 
 	return &src->src;
 }

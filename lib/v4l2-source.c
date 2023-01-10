@@ -170,6 +170,7 @@ struct video_source *v4l2_video_source_create(const char *devname)
 
 	memset(src, 0, sizeof *src);
 	src->src.ops = &v4l2_source_ops;
+	src->src.type = VIDEO_SOURCE_DMABUF;
 
 	src->vdev = v4l2_open(devname);
 	if (!src->vdev) {

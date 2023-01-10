@@ -390,6 +390,7 @@ struct video_source *libcamera_source_create(const char *devname)
 	}
 
 	src->src.ops = &libcamera_source_ops;
+	src->src.type = VIDEO_SOURCE_DMABUF;
 	src->cm = std::make_unique<CameraManager>();
 	src->cm->start();
 
