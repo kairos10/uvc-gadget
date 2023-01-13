@@ -45,6 +45,12 @@ int video_source_export_buffers(struct video_source *src,
 	return src->ops->export_buffers(src, buffers);
 }
 
+int video_source_import_buffers(struct video_source *src,
+				struct video_buffer_set *buffers)
+{
+	return src->ops->import_buffers(src, buffers);
+}
+
 int video_source_free_buffers(struct video_source *src)
 {
 	return src->ops->free_buffers(src);

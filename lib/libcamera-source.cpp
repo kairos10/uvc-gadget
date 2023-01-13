@@ -227,6 +227,17 @@ static int libcamera_source_export_buffers(struct video_source *s,
 	return 0;
 }
 
+static int libcamera_source_import_buffers(struct video_source *s,
+					   struct video_buffer_set *buffers)
+{
+	struct libcamera_source *src = to_libcamera_source(s);
+
+	for (unsigned int i = 0; i < buffers->nbufs; i++)
+		src->buffers.buffers[i].mem = buffers->buffers[i].mem;
+
+	return 0;
+}
+
 static int libcamera_source_free_buffers(struct video_source *s)
 {
 	struct libcamera_source *src = to_libcamera_source(s);
@@ -328,6 +339,7 @@ static const struct video_source_ops libcamera_source_ops = {
 	.set_frame_rate = libcamera_source_set_frame_rate,
 	.alloc_buffers = libcamera_source_alloc_buffers,
 	.export_buffers = libcamera_source_export_buffers,
+	.import_buffers = libcamera_source_import_buffers,
 	.free_buffers = libcamera_source_free_buffers,
 	.stream_on = libcamera_source_stream_on,
 	.stream_off = libcamera_source_stream_off,

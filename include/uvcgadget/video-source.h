@@ -22,6 +22,8 @@ struct video_source_ops {
 	int(*alloc_buffers)(struct video_source *src, unsigned int nbufs);
 	int(*export_buffers)(struct video_source *src,
 			     struct video_buffer_set **buffers);
+	int(*import_buffers)(struct video_source *src,
+			     struct video_buffer_set *buffers);
 	int(*free_buffers)(struct video_source *src);
 	int(*stream_on)(struct video_source *src);
 	int(*stream_off)(struct video_source *src);
@@ -62,6 +64,8 @@ int video_source_set_frame_rate(struct video_source *src, unsigned int fps);
 int video_source_alloc_buffers(struct video_source *src, unsigned int nbufs);
 int video_source_export_buffers(struct video_source *src,
 				struct video_buffer_set **buffers);
+int video_source_import_buffers(struct video_source *src,
+				struct video_buffer_set *buffers);
 int video_source_free_buffers(struct video_source *src);
 int video_source_stream_on(struct video_source *src);
 int video_source_stream_off(struct video_source *src);
