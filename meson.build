@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: CC0-1.0
 
-project('uvc-gadget', 'c',
+project('uvc-gadget', 'c', 'cpp',
     meson_version : '>= 0.56',
     version : '0.2.0',
     default_options : [
         'werror=true',
         'warning_level=2',
+        'cpp_std=c++17',
     ],
     license : 'LGPL 2.1+')
 
@@ -51,6 +52,8 @@ summary({ 'Sources': uvc_gadget_git_version, }, section : 'Versions')
 
 # Configure the build environment.
 cc = meson.get_compiler('c')
+
+libcamera = dependency('libcamera', required : false)
 
 subdir('include')
 

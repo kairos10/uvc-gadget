@@ -15,8 +15,13 @@ libuvcgadget_sources = files([
   'video-source.c',
 ])
 
+if libcamera.found()
+  libuvcgadget_sources += files(['libcamera-source.cpp'])
+endif
+
 libuvcgadget = shared_library('uvcgadget',
                               libuvcgadget_sources,
+                              dependencies : libcamera,
                               version : uvc_gadget_version,
                               install : true,
                               include_directories : includes)

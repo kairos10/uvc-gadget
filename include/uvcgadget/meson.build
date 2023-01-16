@@ -3,6 +3,7 @@
 uvcgadget_public_headers = files([
   'configfs.h',
   'events.h',
+  'libcamera-source.h',
   'list.h',
   'stream.h',
   'timer.h',
