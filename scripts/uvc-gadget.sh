@@ -1,13 +1,15 @@
-#!/bin/sh
+#!/bin/bash
 # SPDX-License-Identifier: MIT
 
 set -e
 #set -x
 
+UVC_BIN=`pwd`/build/src/uvc-gadget
+
 CONFIGFS="/sys/kernel/config"
 GADGET="$CONFIGFS/usb_gadget"
-VID="0x0525"
-PID="0xa4a2"
+VID=0x1d6b
+PID=0x0104
 SERIAL="0123456789"
 MANUF=$(hostname)
 PRODUCT="UVC Gadget"
@@ -44,11 +46,37 @@ echo "Detecting platform:"
 echo "  board : $BOARD"
 echo "  udc   : $UDC"
 
+create_acm() {
+	# Example usage:
+	#	create_acm <target config dir> <function name>
+	#	create_acm c.1 acm.0
+	CONFIG_DIR=$1
+	FUNCTION=$2
+
+	echo -e "\tCreating ACM gadget functionality"
+	mkdir functions/$FUNCTION
+	ln -s functions/$FUNCTION configs/$CONFIG_DIR
+
+	echo -e "\tOK"
+}
+delete_acm() {
+	# Example usage:
+	#	delete_acm <target config dir> <function name>
+	#	delete_acm c.1 acm.0
+	CONFIG_DIR=$1
+	FUNCTION=$2
+
+	echo "Removing ACM interface : $FUNCTION"
+	rm -f configs/$CONFIG_DIR/$FUNCTION
+	rmdir functions/$FUNCTION
+	echo "OK"
+}
+
 create_msd() {
 	# Example usage:
-	#	create_msd <target config> <function name> <image file>
-	#	create_msd configs/c.1 mass_storage.0 /root/backing.img
-	CONFIG=$1
+	#	create_msd <target config dir> <function name> <image file>
+	#	create_msd c.1 mass_storage.0 /root/backing.img
+	CONFIG_DIR=$1
 	FUNCTION=$2
 	BACKING_STORE=$3
 
@@ -57,30 +85,30 @@ create_msd() {
 		echo "\tCreating backing file"
 		dd if=/dev/zero of=$BACKING_STORE bs=1M count=32 > /dev/null 2>&1
 		mkfs.ext4 $USBFILE > /dev/null 2>&1
-		echo "\tOK"
+		echo -e "\tOK"
 	fi
 
 	echo "\tCreating MSD gadget functionality"
 	mkdir functions/$FUNCTION
-	echo 1 > functions/$FUNCTION/stall
-	echo $BACKING_STORE > functions/$FUNCTION/lun.0/file
-	echo 1 > functions/$FUNCTION/lun.0/removable
-	echo 0 > functions/$FUNCTION/lun.0/cdrom
+	cat > functions/$FUNCTION/stall			<<< 1
+	cat > functions/$FUNCTION/lun.0/file		<<< $BACKING_STORE
+	cat > functions/$FUNCTION/lun.0/removable	<<< 1
+	cat > functions/$FUNCTION/lun.0/cdrom		<<< 0
 
-	ln -s functions/$FUNCTION configs/c.1
+	ln -s functions/$FUNCTION configs/$CONFIG_DIR
 
-	echo "\tOK"
+	echo -e "\tOK"
 }
 
 delete_msd() {
 	# Example usage:
-	#	delete_msd <target config> <function name>
-	#	delete_msd config/c.1 uvc.0
-	CONFIG=$1
+	#	delete_msd <target config dir> <function name>
+	#	delete_msd c.1 uvc.0
+	CONFIG_DIR=$1
 	FUNCTION=$2
 
 	echo "Removing Mass Storage interface : $FUNCTION"
-	rm -f $CONFIG/$FUNCTION
+	rm -f configs/$CONFIG_DIR/$FUNCTION
 	rmdir functions/$FUNCTION
 	echo "OK"
 }
@@ -89,46 +117,48 @@ create_frame() {
 	# Example usage:
 	# create_frame <function name> <width> <height> <format> <name>
 
-	FUNCTION=$1
-	WIDTH=$2
-	HEIGHT=$3
-	FORMAT=$4
-	NAME=$5
+	FUNCTION=$1; shift
+	WIDTH=$1; shift
+	HEIGHT=$1; shift
+	FORMAT=$1; shift
+	NAME=$1; shift
+	FPS=${*:-30 60}
 
 	wdir=functions/$FUNCTION/streaming/$FORMAT/$NAME/${HEIGHT}p
 
 	mkdir -p $wdir
-	echo $WIDTH > $wdir/wWidth
-	echo $HEIGHT > $wdir/wHeight
-	echo $(( $WIDTH * $HEIGHT * 2 )) > $wdir/dwMaxVideoFrameBufferSize
-	cat <<EOF > $wdir/dwFrameInterval
-666666
-100000
-5000000
-EOF
+	cat > $wdir/wWidth			<<< $WIDTH
+	cat > $wdir/wHeight			<<< $HEIGHT
+	cat > $wdir/dwMaxVideoFrameBufferSize	<<< $(( $WIDTH * $HEIGHT * 2 ))
+	cat > $wdir/dwFrameInterval		<<-EOF
+		$( for fps in $FPS; do echo $(( 10 * 1000000 / $fps )); done )
+	EOF
 }
 
 create_uvc() {
 	# Example usage:
 	#	create_uvc <target config> <function name>
-	#	create_uvc config/c.1 uvc.0
-	CONFIG=$1
+	#	create_uvc c.1 uvc.0
+	CONFIG_DIR=$1
 	FUNCTION=$2
 
 	echo "	Creating UVC gadget functionality : $FUNCTION"
 	mkdir functions/$FUNCTION
 
-	create_frame $FUNCTION 640 360 uncompressed u
-	create_frame $FUNCTION 1280 720 uncompressed u
-	create_frame $FUNCTION 320 180 uncompressed u
-	create_frame $FUNCTION 1920 1080 mjpeg m
-	create_frame $FUNCTION 640 480 mjpeg m
-	create_frame $FUNCTION 640 360 mjpeg m
+	#create_frame $FUNCTION 640 360 uncompressed u
+	#create_frame $FUNCTION 1280 720 uncompressed u
+	#create_frame $FUNCTION 320 180 uncompressed u
+	#create_frame $FUNCTION 1920 1080 mjpeg m 30
+	#create_frame $FUNCTION 1280 960 mjpeg m 30
+	#create_frame $FUNCTION 1024 768 mjpeg m 30
+	create_frame $FUNCTION 800 600 mjpeg m 30 60
+	create_frame $FUNCTION 640 480 mjpeg m 30 60
+	#create_frame $FUNCTION 640 360 mjpeg m
 
 	mkdir functions/$FUNCTION/streaming/header/h
 	cd functions/$FUNCTION/streaming/header/h
-	ln -s ../../uncompressed/u
-	ln -s ../../mjpeg/m
+	if [ -d ../../uncompressed/u ]; then ln -s ../../uncompressed/u; fi
+	if [ -d ../../mjpeg/m ]; then ln -s ../../mjpeg/m; fi
 	cd ../../class/fs
 	ln -s ../../header/h
 	cd ../../class/hs
@@ -142,45 +172,49 @@ create_uvc() {
 	cd ../../../
 
 	# Set the packet size: uvc gadget max size is 3k...
-	echo 3072 > functions/$FUNCTION/streaming_maxpacket
-	echo 2048 > functions/$FUNCTION/streaming_maxpacket
-	echo 1024 > functions/$FUNCTION/streaming_maxpacket
+	cat > functions/$FUNCTION/streaming_maxpacket <<< 3072
+	cat > functions/$FUNCTION/streaming_maxpacket <<< 2048
+	cat > functions/$FUNCTION/streaming_maxpacket <<< 1024
 
-	ln -s functions/$FUNCTION configs/c.1
+	ln -s functions/$FUNCTION configs/$CONFIG_DIR
 }
 
 delete_uvc() {
 	# Example usage:
-	#	delete_uvc <target config> <function name>
-	#	delete_uvc config/c.1 uvc.0
-	CONFIG=$1
+	#	delete_uvc <target config dir> <function name>
+	#	delete_uvc c.1 uvc.0
+	CONFIG_DIR=$1
 	FUNCTION=$2
 
+	[ -d functions/$FUNCTION ] || return
+
 	echo "	Deleting UVC gadget functionality : $FUNCTION"
-	rm $CONFIG/$FUNCTION
+	rm configs/$CONFIG_DIR/$FUNCTION
 
 	rm functions/$FUNCTION/control/class/*/h
 	rm functions/$FUNCTION/streaming/class/*/h
-	rm functions/$FUNCTION/streaming/header/h/u
-	rmdir functions/$FUNCTION/streaming/uncompressed/u/*/
-	rmdir functions/$FUNCTION/streaming/uncompressed/u
-	rm -rf functions/$FUNCTION/streaming/mjpeg/m/*/
-	rm -rf functions/$FUNCTION/streaming/mjpeg/m
+	[ -a functions/$FUNCTION/streaming/header/h/u ] && rm functions/$FUNCTION/streaming/header/h/u
+	[ -a functions/$FUNCTION/streaming/header/h/m ] && rm functions/$FUNCTION/streaming/header/h/m
+	[ -d functions/$FUNCTION/streaming/uncompressed/u ] && rmdir functions/$FUNCTION/streaming/uncompressed/u/*/
+	[ -d functions/$FUNCTION/streaming/uncompressed/u ] && rmdir functions/$FUNCTION/streaming/uncompressed/u
+	[ -d functions/$FUNCTION/streaming/mjpeg/m ] && rmdir functions/$FUNCTION/streaming/mjpeg/m/*/
+	[ -d functions/$FUNCTION/streaming/mjpeg/m ] && rmdir functions/$FUNCTION/streaming/mjpeg/m
 	rmdir functions/$FUNCTION/streaming/header/h
 	rmdir functions/$FUNCTION/control/header/h
 	rmdir functions/$FUNCTION
 }
 
-case "$1" in
-    start)
-	echo "Creating the USB gadget"
-	#echo "Loading composite module"
-	#modprobe libcomposite
+init_device() {
+	# Example usage:
+	#	init_device <gadget directory> <target config name>
+	#	init_device g1 c.1
+	GADGET_DIR=$1
+	CONFIG_DIR=$2
 
-	echo "Creating gadget directory g1"
-	mkdir -p $GADGET/g1
+	echo "Creating gadget directory $GADGET_DIR"
+	mkdir -p $GADGET/$GADGET_DIR
 
-	cd $GADGET/g1
+	cd $GADGET/$GADGET_DIR
 	if [ $? -ne 0 ]; then
 	    echo "Error creating usb gadget in configfs"
 	    exit 1;
@@ -189,25 +223,36 @@ case "$1" in
 	fi
 
 	echo "Setting Vendor and Product ID's"
-	echo $VID > idVendor
-	echo $PID > idProduct
+	cat > idVendor		<<< $VID
+	cat > idProduct		<<< $PID
 	echo "OK"
 
 	echo "Setting English strings"
 	mkdir -p strings/0x409
-	echo $SERIAL > strings/0x409/serialnumber
-	echo $MANUF > strings/0x409/manufacturer
-	echo $PRODUCT > strings/0x409/product
+	cat > strings/0x409/serialnumber	<<< $SERIAL
+	cat > strings/0x409/manufacturer	<<< $MANUF
+	cat > strings/0x409/product		<<< $PRODUCT
 	echo "OK"
 
 	echo "Creating Config"
-	mkdir configs/c.1
-	mkdir configs/c.1/strings/0x409
+	mkdir -p configs/$CONFIG_DIR
+	mkdir -p configs/$CONFIG_DIR/strings/0x409
+	cat > configs/$CONFIG_DIR/MaxPower		<<< 500
+}
+
+case "$1" in
+    start)
+	echo "Creating the USB gadget"
+	#echo "Loading composite module"
+	modprobe libcomposite
+
+	init_device g1 c.1
 
 	echo "Creating functions..."
-	#create_msd configs/c.1 mass_storage.0 $USBFILE
-	create_uvc configs/c.1 uvc.0
-	#create_uvc configs/c.1 uvc.1
+	#create_msd c.1 mass_storage.0 $USBFILE
+	create_uvc c.1 uvc.0
+	#create_uvc c.1 uvc.1
+	create_acm c.1 acm.0
 	echo "OK"
 
 	echo "Binding USB Device Controller"
@@ -215,9 +260,21 @@ case "$1" in
 	echo peripheral > $UDC_ROLE
 	cat $UDC_ROLE
 	echo "OK"
+
+	FUNC=$( find $GADGET -name functions -type d -exec ls {} \; | grep uvc | head -1 )
+	if [ -x $UVC_BIN ]; then
+		$UVC_BIN -c0 $FUNC
+	else
+		echo -e "Command to start streaming:\n\t" uvc-gadget -c0 $FUNC
+	fi
 	;;
 
     stop)
+	if systemctl is-active --quiet getty@ttyGS0.service; then
+		echo "Stopping getty@ttyGS0.service"
+		systemctl stop getty@ttyGS0.service
+	fi
+
 	echo "Stopping the USB gadget"
 
 	set +e # Ignore all errors here on a best effort
@@ -229,27 +286,32 @@ case "$1" in
 	    exit 1;
 	fi
 
-	echo "Unbinding USB Device Controller"
-	grep $UDC UDC && echo "" > UDC
-	echo "OK"
-
-	#delete_uvc configs/c.1 uvc.1
-	delete_uvc configs/c.1 uvc.0
-	#delete_msd configs/c.1 mass_storage.0
+	if grep $UDC UDC ; then
+		echo "Unbinding USB Device Controller"
+		echo "" > UDC
+		echo "OK"
+	else
+		echo "nothing to unbind"
+	fi
 
 	echo "Clearing English strings"
 	rmdir strings/0x409
+	rmdir configs/c.1/strings/0x409
 	echo "OK"
 
+	#delete_uvc c.1 uvc.1
+	delete_acm c.1 acm.0
+	#delete_msd c.1 mass_storage.0
+	delete_uvc c.1 uvc.0
+
 	echo "Cleaning up configuration"
-	rmdir configs/c.1/strings/0x409
 	rmdir configs/c.1
 	echo "OK"
 
 	echo "Removing gadget directory"
 	cd $GADGET
 	rmdir g1
-	cd /
+	#cd /
 	echo "OK"
 
 	#echo "Disable composite USB gadgets"
